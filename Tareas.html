@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Lista de Leo — Tareas del día</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <style>
+    :root{ --bg:#fef3c7; --card:#ffffff; --ok:#22c55e; --ok-soft:#bbf7d0; --brand:#ff6f61; --text:#1f2937; --muted:#6b7280; }
+    body{ margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", Ubuntu, Cantarell, Arial; background:var(--bg); color:var(--text); }
+    .app{ max-width:1080px; margin:0 auto; padding:16px; }
+    header{ text-align:center; }
+    h1{ margin:8px 0 2px; color:var(--brand); font-size:clamp(24px,4vw,34px); }
+    .subtitle{ color:var(--muted); font-size:14px; text-align:center; }
+    .topbar{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin:12px 0 8px; }
+    .pill{ background:#fff; border-radius:999px; padding:8px 14px; font-weight:600; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+    .actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin:12px 0 18px; }
+    button{ border:0; border-radius:12px; padding:12px 14px; font-weight:700; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.1); }
+    .btn-primary{ background:var(--brand); color:#fff; }
+    .btn-ghost{ background:#fff; color:var(--text); }
+    .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px; }
+    .card{ background:var(--card); border-radius:20px; padding:14px; text-align:center; border:3px solid transparent; position:relative; }
+    .card.completed{ background:var(--ok-soft); border-color:var(--ok); }
+    .emoji{ font-size:48px; }
+    .name{ margin-top:6px; font-size:18px; font-weight:700; }
+    .check{ position:absolute; top:10px; right:10px; width:30px; height:30px; border-radius:50%; display:grid; place-items:center; background:#f3f4f6; }
+    .card.completed .check{ background:var(--ok); color:#fff; }
+    .celebration{ text-align:center; color:#166534; font-weight:800; margin:14px 0 2px; display:none; }
+    .celebration.show{ display:block; }
+    .panel{ background:#fff; border-radius:16px; padding:14px; margin-top:16px; box-shadow:0 2px 10px rgba(0,0,0,.06); }
+    .panel h3{ margin:0 0 8px; color:var(--brand); }
+    .history{ max-height:240px; overflow:auto; }
+    .item{ display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px dashed #eee; }
+    .item:last-child{ border-bottom:0; }
+    .time{ color:var(--muted); font-size:12px; }
+    .toast{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#111827; color:#fff; padding:10px 14px; border-radius:999px; font-size:14px; opacity:0; pointer-events:none; transition:opacity .25s ease; box-shadow:0 6px 24px rgba(0,0,0,.2);} 
+    .toast.show{ opacity:0.96; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>🌟 Mi Lista de Hoy</h1>
+      <div class="subtitle">Toca para marcar o desmarcar. ¡A divertirse!</div>
+    </header>
+
+    <div class="topbar">
+      <div id="progressPill" class="pill">Progreso: 0 / 0</div>
+      <div class="pill" id="datePill"></div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn-primary" id="resetDay" aria-label="Resetear progreso">Reset progreso</button>
+      <button type="button" class="btn-ghost" id="clearHistory" aria-label="Borrar historial">Borrar historial</button>
+      <button type="button" class="btn-ghost" id="exportCsv" aria-label="Exportar historial a CSV">Exportar historial (CSV)</button>
+    </div>
+
+    <section class="grid" id="grid"></section>
+
+    <h2 id="celebration" class="celebration">🎉 ¡Felicidades! ¡Has completado todas las tareas! 🎉</h2>
+
+    <section class="panel">
+      <h3>📜 Historial</h3>
+      <div id="history" class="history"></div>
+    </section>
+  </div>
+
+  <!-- Audio de aplausos desde GitHub RAW (CORS OK) -->
+  <audio id="applauseAudio" preload="auto" crossorigin="anonymous">
+    <source src="https://raw.githubusercontent.com/jonreca/AgenteIA/main/aplausos.mp3" type="audio/mpeg" />
+  </audio>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Confeti (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+  <script>
+  /* -------- Config -------- */
+  const APPLAUSE_MS = 1300; // límite de reproducción (1–2s)
+
+  /* -------- Datos -------- */
+  const INITIAL_TASKS = [
+    { id: 1, name: 'Levantarse', icon: '☀️', completed: false },
+    { id: 2, name: 'Desayunar', icon: '🥞', completed: false },
+    { id: 3, name: 'Jugar con los juguetes', icon: '🧸', completed: false },
+    { id: 4, name: 'Pintar', icon: '🎨', completed: false },
+    { id: 5, name: 'Ayudar a poner la mesa', icon: '🍽️', completed: false },
+    { id: 6, name: 'Comer', icon: '🍝', completed: false },
+    { id: 7, name: 'Recoger', icon: '🧹', completed: false },
+    { id: 8, name: 'Echarse la siesta', icon: '😴', completed: false },
+    { id: 9, name: 'Bailar', icon: '💃', completed: false },
+    { id: 10, name: 'Ayudar a poner la mesa (tarde)', icon: '🍽️', completed: false },
+    { id: 11, name: 'Cenar', icon: '🍽️', completed: false },
+    { id: 12, name: 'Cepillarse los dientes', icon: '🪥', completed: false },
+    { id: 13, name: 'Darse un baño', icon: '🛁', completed: false },
+    { id: 14, name: 'Leer un cuento', icon: '📚', completed: false },
+    { id: 15, name: 'Dar besos', icon: '😘', completed: false },
+    { id: 16, name: 'Irse a dormir', icon: '🌙', completed: false },
+  ];
+  const KEY_TASKS = 'leo_tasks_v7';
+  const KEY_HISTORY = 'leo_history_v7';
+
+  /* -------- Estado + utilidades -------- */
+  function safeLoad(key, fallback){ try{ const v=JSON.parse(localStorage.getItem(key)); return (v ?? fallback); }catch(e){ return fallback; } }
+  function safeSave(key, value){ try{ localStorage.setItem(key, JSON.stringify(value)); return true; }catch(e){ toast('⚠️ No se pudo guardar.'); return false; } }
+  let tasks = safeLoad(KEY_TASKS, JSON.parse(JSON.stringify(INITIAL_TASKS)));
+  let history = safeLoad(KEY_HISTORY, []);
+
+  function nowES(){ const d=new Date(); return { date:d.toLocaleDateString('es-ES',{year:'numeric',month:'2-digit',day:'2-digit'}), time:d.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'}) }; }
+  function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'), 1800); }
+
+  /* -------- Render -------- */
+  function updateProgress(){ const done=tasks.filter(t=>t.completed).length; document.getElementById('progressPill').textContent=`Progreso: ${done} / ${tasks.length}`; document.getElementById('celebration').classList.toggle('show', done===tasks.length && tasks.length>0); }
+  function renderDate(){ document.getElementById('datePill').textContent=new Date().toLocaleDateString('es-ES',{weekday:'long',day:'2-digit',month:'long'}); }
+
+  const grid = document.getElementById('grid');
+  function renderGrid(){ grid.innerHTML=''; tasks.forEach(t=>{ const card=document.createElement('button'); card.className='card'+(t.completed?' completed':''); card.setAttribute('aria-pressed', t.completed? 'true':'false'); card.innerHTML=`<div class="check">${t.completed?'✓':''}</div><div class="emoji">${t.icon}</div><div class="name">${t.name}</div>`; card.addEventListener('click',()=>toggleTask(t.id,card)); grid.appendChild(card); }); updateProgress(); }
+
+  const historyEl = document.getElementById('history');
+  function renderHistory(){ historyEl.innerHTML = history.length ? history.map(h=>`<div class="item"><div class="emoji">${h.icon||'✅'}</div><div><div><strong>${h.task}</strong></div><div class="time">${h.date} · ${h.time}</div></div></div>`).join('') : '<div class="time">No hay tareas completadas aún</div>'; }
+
+  /* -------- Confeti + Audio -------- */
+  function burstConfetti(){ confetti({ spread:75, particleCount:70, origin:{ y:0.6 } }); }
+  function finaleConfetti(){ const end=Date.now()+900; (function frame(){ confetti({particleCount:6,angle:60,spread:60,origin:{x:0}}); confetti({particleCount:6,angle:120,spread:60,origin:{x:1}}); if(Date.now()<end) requestAnimationFrame(frame); })(); }
+
+  let applauseTimer = null;
+  let audioCtx = null;
+  function synthClap(duration = 0.25){
+    try{
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const sr = audioCtx.sampleRate;
+      const length = Math.max(1, Math.floor(sr * duration));
+      const buffer = audioCtx.createBuffer(1, length, sr);
+      const data = buffer.getChannelData(0);
+      for(let i=0;i<length;i++){
+        const decay = Math.pow(1 - i/length, 2.5);
+        data[i] = (Math.random()*2 - 1) * decay;
+      }
+      const src = audioCtx.createBufferSource();
+      src.buffer = buffer;
+      const bp = audioCtx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 0.5;
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.9, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      src.connect(bp).connect(gain).connect(audioCtx.destination);
+      src.start(); src.stop(audioCtx.currentTime + duration);
+    }catch(e){}
+  }
+  function playApplause(){
+    const el = document.getElementById('applauseAudio');
+    if(!el){ synthClap(); return; }
+    try{
+      if(applauseTimer){ clearTimeout(applauseTimer); applauseTimer = null; }
+      el.currentTime = 0;
+      let started = false;
+      const stopLater = ()=>{ try{ el.pause(); el.currentTime = 0; }catch(_){} };
+      const p = el.play();
+      if(p && typeof p.then === 'function'){
+        p.then(()=>{ started = true; applauseTimer = setTimeout(stopLater, APPLAUSE_MS); })
+         .catch(()=>{ synthClap(); });
+        setTimeout(()=>{ if(!started || el.paused) synthClap(); }, 600);
+      }else{
+        setTimeout(()=>{ if(el.paused) synthClap(); }, 600);
+        applauseTimer = setTimeout(stopLater, APPLAUSE_MS);
+      }
+    }catch(e){ synthClap(); }
+  }
+
+  /* -------- Lógica -------- */
+  function addHistoryEntry(task){ const {date,time}=nowES(); history.unshift({ id:task.id, task:task.name, icon:task.icon, date, time }); safeSave(KEY_HISTORY, history); renderHistory(); }
+  function removeLastHistoryEntryForTask(taskId){ const idx=history.findIndex(h=>h.id===taskId); if(idx!==-1){ history.splice(idx,1); safeSave(KEY_HISTORY, history); renderHistory(); } }
+
+  function toggleTask(id, cardEl){
+    const idx = tasks.findIndex(t=>t.id===id); if(idx===-1) return;
+    const was = tasks[idx].completed; tasks[idx].completed = !was;
+    if(tasks[idx].completed){ burstConfetti(); playApplause(); addHistoryEntry(tasks[idx]); } else { removeLastHistoryEntryForTask(id); }
+    safeSave(KEY_TASKS, tasks);
+    if(cardEl){ cardEl.classList.toggle('completed', tasks[idx].completed); const check=cardEl.querySelector('.check'); if(check) check.textContent = tasks[idx].completed ? '✓' : ''; cardEl.setAttribute('aria-pressed', tasks[idx].completed? 'true':'false'); }
+    updateProgress(); if(tasks.every(t=>t.completed)) finaleConfetti();
+  }
+
+  /* -------- Botones -------- */
+  document.getElementById('resetDay').addEventListener('click', ()=>{ tasks = tasks.map(t=>({ ...t, completed:false })); safeSave(KEY_TASKS, tasks); renderGrid(); toast('✅ Progreso reiniciado'); });
+  document.getElementById('clearHistory').addEventListener('click', ()=>{ history = []; safeSave(KEY_HISTORY, history); renderHistory(); toast('🧹 Historial borrado'); });
+  document.getElementById('exportCsv').addEventListener('click', async ()=>{
+    if(!history.length){ toast('ℹ️ No hay historial'); return; }
+    const header='fecha,hora,tarea\n';
+    const rows = history.map(h=>`${h.date},${h.time},"${h.task.replace(/"/g,'""')}"`).join('\n');
+    const csv = header + rows; const filename = 'historial_leo.csv';
+    try{
+      const blob = new Blob([csv], { type:'text/csv' });
+      if(window.File && navigator.canShare){
+        const f = new File([blob], filename, { type:'text/csv' });
+        if(navigator.canShare({ files:[f] })){
+          await navigator.share({ files:[f], title:'Historial Lista de Leo', text:'CSV del historial' });
+          toast('📤 CSV compartido'); return;
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      toast('⬇️ CSV descargado'); return;
+    }catch(e){}
+    try{ const dataUrl = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv); const win = window.open(dataUrl,'_blank'); if(win){ toast('🗂 CSV abierto'); return; } }catch(e){}
+    try{ if(navigator.clipboard){ await navigator.clipboard.writeText(csv); toast('📋 CSV copiado'); return; } }catch(e){}
+    alert(csv);
+  });
+
+  /* -------- Init -------- */
+  renderDate();
+  renderGrid();
+  renderHistory();
+  </script>
+</body>
+</html>
